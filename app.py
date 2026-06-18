@@ -106,10 +106,28 @@ with st.sidebar:
         "🚨 Alertas",
         "💾 Exportar",
         "📋 Histórico",
+        "📦 Devoluções",
     ])
     st.markdown("---")
     total_dis = len(db.get_disputas())
     st.markdown(f"**📁 Total no banco:** {total_dis} disputas")
+    st.markdown("---")
+    with st.expander("⚙️ Configuracoes"):
+        st.warning("Atencao: acao irreversivel!")
+        if st.button("Limpar Historico", key="btn_reset"):
+            st.session_state["confirmar_reset"] = True
+        if st.session_state.get("confirmar_reset"):
+            st.error("Confirma apagar tudo?")
+            c1r, c2r = st.columns(2)
+            with c1r:
+                if st.button("Sim, apagar", type="primary", key="reset_sim"):
+                    db.reset_db()
+                    st.session_state["confirmar_reset"] = False
+                    st.rerun()
+            with c2r:
+                if st.button("Cancelar", key="reset_nao"):
+                    st.session_state["confirmar_reset"] = False
+                    st.rerun()
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -798,6 +816,66 @@ elif pagina == "💾 Exportar":
 # ─────────────────────────────────────────────────────────────────
 # PÁGINA: HISTÓRICO
 # ─────────────────────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────────────────────────
+elif pagina == "📦 Devoluções":
+    st.markdown('<div class="page-title">📦 Gestão de Devoluções</div>', unsafe_allow_html=True)
+    st.info("Registre aqui as devoluções recebidas. Informe o ID do pedido e o sistema vincula automaticamente à disputa correspondente.")
+    FRETE_DEV = 20.0
+    with st.form("form_devolucao"):
+        st.markdown("### Registrar Nova Devolução")
+        fc1, fc2 = st.columns(2)
+        with fc1:
+            rastreamento = st.text_input("Número de Rastreamento", placeholder="BR123456789BR")
+            id_pedido = st.text_input("ID do Pedido / ID Solicitação", placeholder="Ex: 2312345678901")
+        with fc2:
+            prod_quebrado_opt = st.radio(
+                "Estado do Produto Recebido:",
+                ["Produto chegou INTEIRO (não computa custo)", "Produto chegou QUEBRADO (computa custo)"],
+                index=0
+            )
+            obs_dev = st.text_area("Observações", placeholder="Observações sobre a devolução...")
+        submit_dev = st.form_submit_button("Registrar Devolução", type="primary")
+        if submit_dev:
+            if not rastreamento and not id_pedido:
+                st.error("Informe pelo menos o rastreamento ou ID do pedido.")
+            else:
+                quebrado_bool = "QUEBRADO" in prod_quebrado_opt
+                disputa_id = db.registrar_devolucao(
+                    rastreamento=rastreamento or "",
+                    id_pedido=id_pedido or "",
+                    produto_quebrado=quebrado_bool,
+                    observacoes=obs_dev or ""
+                )
+                if disputa_id:
+                    st.success(f"Devolução registrada e vinculada à disputa #{disputa_id}!")
+                    if quebrado_bool:
+                        st.warning("Produto marcado como QUEBRADO - custo será somado ao prejuízo!")
+                    else:
+                        st.info("Produto INTEIRO - apenas frete de R$20,00 será computado.")
+                else:
+                    st.success("Devolução registrada (sem disputa vinculada encontrada).")
+                st.rerun()
+    st.markdown("---")
+    st.markdown("### Histórico de Devoluções")
+    devs = db.get_devolucoes()
+    if not devs:
+        st.info("Nenhuma devolução registrada ainda.")
+    else:
+        df_dev = pd.DataFrame(devs)
+        col_map = {"rastreamento": "Rastreamento", "id_pedido": "ID Pedido", "disputa_id": "Disputa #",
+                   "produto_quebrado": "Produto", "data_registro": "Data", "sku_principal": "SKU",
+                   "nome_produto": "Produto Nome", "observacoes": "Obs"}
+        df_show = df_dev[[c for c in col_map if c in df_dev.columns]].rename(columns=col_map)
+        if "Produto" in df_show.columns:
+            df_show["Produto"] = df_show["Produto"].apply(lambda x: "QUEBRADO" if x else "INTEIRO")
+        if "Data" in df_show.columns:
+            df_show["Data"] = df_show["Data"].astype(str).str[:16]
+        st.dataframe(df_show, use_container_width=True, hide_index=True)
+        total_devs = len(devs)
+        qb = sum(1 for d in devs if d.get("produto_quebrado"))
+        st.markdown(f"**Total:** {total_devs} | **Quebrados:** {qb} | **Inteiros:** {total_devs-qb} | **Frete total:** R$ {total_devs * FRETE_DEV:.2f}")
+
 elif pagina == "📋 Histórico":
     st.markdown('<div class="page-title">📋 Histórico de Importações</div>', unsafe_allow_html=True)
 
